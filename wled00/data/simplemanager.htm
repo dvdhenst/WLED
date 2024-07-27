@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+	<meta charset="utf-8">
+	<title>SOLO Lighting - LED controller</title>
+	<script>
+	var d=document;
+	function gId(s){return d.getElementById(s);}
+	function GoWLED() { 
+		// Get the current location
+    	let currentLocation = window.location;
+		// Construct the new URL with a different port (e.g., 8080)
+		let WLEDURL = currentLocation.protocol + "//" + currentLocation.hostname + ":80"
+		window.location.href = WLEDURL;
+	}
+	function adj(){
+		if (d.Sf.DI.value == 6454) {
+			if (d.Sf.EU.value == 1) d.Sf.EU.value = 0;
+		} else if (d.Sf.DI.value == 5568) {
+			if (d.Sf.DA.value == 0) d.Sf.DA.value = 1; 
+			if (d.Sf.EU.value == 0) d.Sf.EU.value = 1;} 
+	}
+	function SP(){
+		var p = d.Sf.DI.value; 
+		gId("port").style.display = (p > 0)?"none":"block"; 
+		gId("uncalc").style.display = (p == 6454)?"block":"none"; 
+		if (p > 0) d.Sf.EP.value = p;
+	}
+	document.addEventListener("DOMContentLoaded", () => {
+		fetchSettings();
+	});
+
+	function fetchSettings() {
+		// URL to fetch XML data from
+		const xmlUrl = 'http://2.0.0.91:8080/settings.xml';
+		//const xmlUrl = 'settings.xml';
+
+		showSpinner();
+		
+		// Fetch XML data
+		fetch(xmlUrl)
+			.then(response => {
+				if (!response.ok) {
+					throw new Error('Network response was not ok ' + response.statusText);
+				}
+				return response.text();
+			})
+			.then(str => (new window.DOMParser()).parseFromString(str, "text/xml"))
+			.then(data => {
+				// Parse the XML data and populate the form
+				populateForm(data);
+			})
+			.catch(error => {
+				console.error('There has been a problem with your fetch operation:', error);
+			});
+
+		hideSpinner();
+	}
+
+	function populateForm(xmlData) {
+		// XML structure:
+		// <data>
+		//   <FIELD>Value</FIELD>
+		// </data>
+		d.Sf.EP.value = xmlData.getElementsByTagName('EP')[0].firstChild.nodeValue;
+		switch(parseInt(d.Sf.EP.value)) {
+			case 5568: d.Sf.DI.value = 5568; break; 
+			case 6454: d.Sf.DI.value = 6454; break; 
+		}
+
+		d.Sf.EU.value = xmlData.getElementsByTagName('EU')[0].firstChild.nodeValue;
+		d.Sf.DA.value = xmlData.getElementsByTagName('DA')[0].firstChild.nodeValue;
+		d.Sf.XX.value = xmlData.getElementsByTagName('XX')[0].firstChild.nodeValue;
+		d.Sf.DM.value = xmlData.getElementsByTagName('DM')[0].firstChild.nodeValue;
+		SP();
+
+		for(i = 0; i<4; i++) {
+			d.getElementsByName("I"+i)[0].value = xmlData.getElementsByTagName("I"+i)[0].firstChild.nodeValue;
+			d.getElementsByName("G"+i)[0].value = xmlData.getElementsByTagName("G"+i)[0].firstChild.nodeValue;
+			d.getElementsByName("S"+i)[0].value = xmlData.getElementsByTagName("S"+i)[0].firstChild.nodeValue;
+		}
+
+		// Get the target div
+		const targetDiv = d.getElementById('ledstrips');
+		var ledstripTable = '<table><tr><th>Led strip</th><th>Type</th><th>Length</th><th>Universe</th><th>Start address</th></tr>';
+		var stripNumber = 0;
+		xmlData.getElementsByTagName('Busses')[0].childNodes.forEach(childNode => {
+            if (childNode.nodeType === 1) { // Element node
+				stripNumber = childNode.getElementsByTagName("BN")[0].firstChild.nodeValue;
+				ledstripTable += '<tr><td>'+stripNumber+'</td>';
+				ledstripTable += '<td>'+getTypeSelect(childNode.getElementsByTagName("TY")[0].firstChild.nodeValue,stripNumber)+'</td>'; //Type
+				ledstripTable += '<td><input name="LE' + stripNumber + '" type="number" value="'+childNode.getElementsByTagName("LE")[0].firstChild.nodeValue+'"></td>'; //Length
+				ledstripTable += '<td>'+childNode.getElementsByTagName("BU")[0].firstChild.nodeValue+'</td>';
+				ledstripTable += '<td>'+childNode.getElementsByTagName("BA")[0].firstChild.nodeValue+'</td></tr>';
+			}
+        });
+		ledstripTable += "</table>";
+		
+		targetDiv.innerHTML = ledstripTable;
+	}
+
+	function CalUN() {
+		d.Sf.EU.value = d.Sf.ANSN.value*15 + d.Sf.ANUN.value;
+	}
+
+	const rebootInterval = 1000;
+	const rebootTimeout = 10000;
+	let rebootElapsedTime = 0;
+	const checkInterval = null;
+	async function checkServerAvailability() {
+		try {
+			const response = await fetch("/", { method: 'GET', cache: 'no-store'});
+
+			if (response.ok) {
+				window.location.reload();
+			} else {
+				console.log('Page not available, status:', response.status);
+				window.alert("Controller not responding. Refresh page manually.");
+			}
+			rebootElapsedTime += rebootInterval;
+            if (rebootElapsedTime >= rebootTimeout) {
+                clearInterval(checkInterval);
+                document.getElementById('status').textContent = 'Page is not available.';
+            }
+		} catch (error) {
+			console.error('Server check failed:', error);
+		}
+	}
+
+	function reboot() {
+		const rebootURL = '/reboot';
+
+		if(!window.confirm("Do you want to reboot?")) return;
+
+		showSpinner();
+
+		// Fetch reboot URL
+		fetch(rebootURL)
+			.then(response => {
+					if (!response.ok) {
+						throw new Error('Reboot failed: Network response was not ok ' + response.statusText);
+					}
+			});
+
+		const checkInterval = setInterval(checkServerAvailability, rebootInterval);
+	}
+	function getTypeSelect(busType, stripNumber) {
+		var typeSelect = '<select name="LT'+stripNumber+'">';
+		typeSelect += '<option value="22" '+(busType == "22"?'selected':'') + '>WS281x</option>';
+		typeSelect += '<option value="30" '+(busType == "30"?'selected':'') + '>SK6812/WS2814 RGBW</option>';
+		typeSelect += '<option value="31" '+(busType == "31"?'selected':'') + '>TM1814</option>';
+		typeSelect += '<option value="24" '+(busType == "24"?'selected':'') + '>400kHz</option>';
+		typeSelect += '<option value="25" '+(busType == "25"?'selected':'') + '>TM1829</option>';
+		typeSelect += '<option value="26" '+(busType == "26"?'selected':'') + '>UCS8903</option>';
+		typeSelect += '<option value="29" '+(busType == "27"?'selected':'') + '>UCS8904 RGBW</option>';
+		typeSelect += '<option value="50" '+(busType == "50"?'selected':'') + '>WS2801</option>';
+		typeSelect += '<option value="51" '+(busType == "51"?'selected':'') + '>APA102</option>';
+		typeSelect += '<option value="52" '+(busType == "52"?'selected':'') + '>LPD8806</option>';
+		typeSelect += '<option value="54" '+(busType == "54"?'selected':'') + '>LPD6803</option>';
+		typeSelect += '<option value="53" '+(busType == "53"?'selected':'') + '>P9813</option>';
+		typeSelect += '<option value="19" '+(busType == "19"?'selected':'') + '>WS2811 White</option>';
+		typeSelect += '<option value="40" '+(busType == "40"?'selected':'') + '>On/Off</option>';
+		typeSelect += '<option value="41" '+(busType == "41"?'selected':'') + '>PWM White</option>';
+		typeSelect += '<option value="42" '+(busType == "42"?'selected':'') + '>PWM CCT</option>';
+		typeSelect += '<option value="43" '+(busType == "43"?'selected':'') + '>PWM RGB</option>';
+		typeSelect += '<option value="44" '+(busType == "44"?'selected':'') + '>PWM RGBW</option>';
+		typeSelect += '<option value="45" '+(busType == "45"?'selected':'') + '>PWM RGB+CCT</option>';
+		typeSelect += '<option value="80" '+(busType == "80"?'selected':'') + '>DDP RGB (network)</option>';
+		typeSelect += '<option value="82" '+(busType == "82"?'selected':'') + '>Art-Net RGB (network)</option>';
+		typeSelect += '<option value="88" '+(busType == "88"?'selected':'') + '">DDP RGBW (network)</option>';
+		typeSelect += '</select>';
+		return typeSelect;
+	}
+
+	function showSpinner() {
+		d.getElementById('spinnerOverlay').style.display = 'flex';
+	}
+
+	function hideSpinner() {
+		d.getElementById('spinnerOverlay').style.display = 'none';
+	}
+	</script>
+	<style>@import url("simplemanager.css");</style>
+</head>
+<body>
+<div id="spinnerOverlay">
+	<div class="spinner"></div>
+</div>
+<div class="wrapper" id="top">
+<form id="form_s" name="Sf" method="post" onsubmit="">
+<div class="toprow">
+<button type="button" class="sml" onclick="GoWLED()">Go to WLED</button><button type="button" class="sml" onclick="reboot()">Reboot</button>
+<hr>
+<button type="submit">Save</button><button type="button" onclick="fetchSettings()">Reload settings</button>
+<hr>
+</div>
+<div class="container">
+<h2>LED strips</h2>
+<div class="flexbox" id="ledstrips">
+
+</div>	
+<h2>sACN/ArtNET setup</h2>
+<div class="flexbox">
+<div class="category">Network type/port:</div>
+<div class="input"><select name="DI" onchange="SP(); adj();">
+<option value=5568>sACN (E1.31)</option>
+<option value=6454>Art-Net</option>
+<option value=0 selected>Custom</option>
+</select>
+<div id="port"><input name="EP" type="number" min="1" max="65535" value="5568" class="d5" required></div></div>
+<div class="category">Start universe:</div> <div class="input">
+	<input name="EU" type="number" min="0" max="63999" required>
+	<div id="uncalc">Subnet <input name="ANSN" type="number" min="0" max="15" value="0"> Universe <input name="ANUN" type="number" min="0" max="15" value="0"><button type="button" onclick="CalUN()" class="sml">Calculate</button></div>
+</div>
+<div class="category">DMX start address:</div> <div class="input"><input name="DA" type="number" min="1" max="510" required></div>
+<div class="category">DMX segment spacing:</div> <div class="input"><input name="XX" type="number" min="0" max="150" required></div>
+<div class="category">DMX mode:</div>
+<div class="input"><select name=DM>
+<option value=0>Disabled</option>
+<option value=1>Single RGB</option>
+<option value=2>Single DRGB</option>
+<option value=3>Effect</option>
+<option value=7>Effect + White</option>
+<option value=8>Effect Segment</option>
+<option value=9>Effect Segment + White</option>
+<option value=4>Multi RGB</option>
+<option value=5>Dimmer + Multi RGB</option>
+<option value=6>Multi RGBW</option>
+<option value=10>Preset</option>
+</select></div>
+</div>
+<!--<h3>sACN settings</h3>
+Multicast: <input type="checkbox" name="EM"><br>
+<i>Reboot required.</i> Check out <a href="https://github.com/LedFx/LedFx" target="_blank">LedFx</a>!<br>
+Skip out-of-sequence packets: <input type="checkbox" name="ES"><br>
+E1.31 port priority: <input name="PY" type="number" min="0" max="200" required><br>
+<a href="https://kno.wled.ge/interfaces/e1.31-dmx/" target="_blank">E1.31 info</a><br>
+Timeout: <input name="ET" type="number" min="1" max="65000" required> ms<br>
+Force max brightness: <input type="checkbox" name="FB"><br>
+Disable realtime gamma correction: <input type="checkbox" name="RG"><br>
+Realtime LED offset: <input name="WO" type="number" min="-255" max="255" required>
+</form>
+</div>
+</div>-->
+
+<div class="container">
+	<h2>Network setup</h2>
+<div class="flexbox">
+	<div class="category">Static IP (leave at 0.0.0.0 for DHCP):</div>
+	<div class="input"><input name="I0" type="number" class="s" min="0" max="255" required> .
+		<input name="I1" type="number" class="s" min="0" max="255" required> .
+		<input name="I2" type="number" class="s" min="0" max="255" required> .
+		<input name="I3" type="number" class="s" min="0" max="255" required></div>
+		
+	<div class="category">Static gateway:</div>
+	<div class="input"><input name="G0" type="number" class="s" min="0" max="255" required> .
+		<input name="G1" type="number" class="s" min="0" max="255" required> .
+		<input name="G2" type="number" class="s" min="0" max="255" required> .
+		<input name="G3" type="number" class="s" min="0" max="255" required></div>
+		
+	<div class="category">Static subnet mask:</div>
+	<div class="input"><input name="S0" type="number" class="s" min="0" max="255" required> .
+		<input name="S1" type="number" class="s" min="0" max="255" required> .
+		<input name="S2" type="number" class="s" min="0" max="255" required> .
+		<input name="S3" type="number" class="s" min="0" max="255" required></div>
+</div>
+*Reboot required to refresh IP
+</div>
+
+</body>
+</html>

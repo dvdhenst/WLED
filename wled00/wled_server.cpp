@@ -526,7 +526,6 @@ String dmxProcessor(const String& var)
 }
 #endif
 
-
 void serveSettingsJS(AsyncWebServerRequest* request)
 {
   char buf[SETTINGS_STACK_BUF_SIZE+37];
@@ -552,7 +551,6 @@ void serveSettingsJS(AsyncWebServerRequest* request)
   response->addHeader(F("Expires"),"0");
   request->send(response);
 }
-
 
 void serveSettings(AsyncWebServerRequest* request, bool post)
 {

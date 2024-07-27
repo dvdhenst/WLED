@@ -7,6 +7,8 @@
    @author Christian Schwinne
  */
 
+#define USERMOD_SIMPLEMANAGER
+
 // version code in format yymmddb (b = daily build)
 #define VERSION 2405180
 
